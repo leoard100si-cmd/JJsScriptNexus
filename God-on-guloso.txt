@@ -1,0 +1,827 @@
+--========================================================
+-- NEXUS HUB | ABSOLUTE GOD ON 6.0 FINAL
+-- JJS | MOBILE HUD EDITION
+-- Local interface, visual effects and camera controls
+--========================================================
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+local Stats = game:GetService("Stats")
+local UIS = game:GetService("UserInputService")
+
+local LP = Players.LocalPlayer
+local PG = LP:WaitForChild("PlayerGui")
+
+--========================================================
+-- CONFIGURATION
+--========================================================
+
+local C = {
+    Active = false,
+    Aura = true,
+    AuraStyle = 1,
+    AuraIntensity = 1,
+
+    FOV = 70,
+    CameraPreset = 1,
+
+    Performance = 1,
+    Profile = 1,
+
+    ShowMonitor = true,
+    Minimized = false
+}
+
+local Palette = {
+    Gold = Color3.fromRGB(226,183,91),
+    LightGold = Color3.fromRGB(255,225,155),
+    Dark = Color3.fromRGB(10,11,15),
+    Panel = Color3.fromRGB(23,24,31),
+    Text = Color3.fromRGB(240,240,240),
+    Muted = Color3.fromRGB(145,148,160),
+    Green = Color3.fromRGB(100,220,150),
+    Red = Color3.fromRGB(240,95,95)
+}
+
+local AuraColors = {
+    {
+        Color3.fromRGB(226,183,91),
+        Color3.fromRGB(255,225,155)
+    },
+    {
+        Color3.fromRGB(155,105,255),
+        Color3.fromRGB(220,190,255)
+    },
+    {
+        Color3.fromRGB(80,65,145),
+        Color3.fromRGB(175,145,230)
+    }
+}
+
+--========================================================
+-- STATE
+--========================================================
+
+local Connections = {}
+local AuraObjects = {}
+local Original = {
+    FOV = nil,
+    GlobalShadows = nil,
+    Effects = {}
+}
+
+local GUI
+local Main
+local Floating
+local GodButton
+local Status
+local Monitor
+local AuraButton
+local ProfileLabel
+local ActivePage
+
+local Pages = {}
+local Tabs = {}
+
+local function Track(connection)
+    table.insert(Connections, connection)
+    return connection
+end
+
+--========================================================
+-- CLEANUP PREVIOUS VERSION
+--========================================================
+
+local old = PG:FindFirstChild("NEXUS_ABSOLUTE_6")
+if old then
+    old:Destroy()
+end
+
+--========================================================
+-- UI HELPERS
+--========================================================
+
+local function Create(class, props, parent)
+    local obj = Instance.new(class)
+
+    for key, value in pairs(props) do
+        obj[key] = value
+    end
+
+    obj.Parent = parent
+    return obj
+end
+
+local function Corner(obj, radius)
+    Create("UICorner", {
+        CornerRadius = UDim.new(0, radius or 8)
+    }, obj)
+end
+
+local function Outline(obj, color, transparency)
+    Create("UIStroke", {
+        Color = color or Palette.Gold,
+        Transparency = transparency or 0.3,
+        Thickness = 1
+    }, obj)
+end
+
+local function Label(parent, text, height, color)
+    return Create("TextLabel", {
+        Size = UDim2.new(1,-4,0,height or 28),
+        BackgroundTransparency = 1,
+        Text = text,
+        TextColor3 = color or Palette.Muted,
+        TextSize = 10,
+        Font = Enum.Font.Gotham,
+        TextWrapped = true,
+        TextXAlignment = Enum.TextXAlignment.Left
+    },parent)
+end
+
+--========================================================
+-- GUI ROOT
+--========================================================
+
+GUI = Create("ScreenGui", {
+    Name = "NEXUS_ABSOLUTE_6",
+    ResetOnSpawn = false,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+},PG)
+
+Main = Create("Frame", {
+    Name = "Main",
+    Size = UDim2.fromOffset(285,370),
+    Position = UDim2.new(0,14,0.16,0),
+    BackgroundColor3 = Palette.Dark,
+    BorderSizePixel = 0
+},GUI)
+
+Corner(Main,12)
+Outline(Main,Palette.Gold,0.15)
+
+--========================================================
+-- HEADER
+--========================================================
+
+local Header = Create("Frame", {
+    Size = UDim2.new(1,0,0,48),
+    BackgroundColor3 = Palette.Panel,
+    BorderSizePixel = 0
+},Main)
+
+Corner(Header,12)
+
+Create("TextLabel", {
+    Position = UDim2.fromOffset(12,4),
+    Size = UDim2.new(1,-55,0,22),
+    BackgroundTransparency = 1,
+    Text = "NEXUS // ABSOLUTE",
+    TextColor3 = Palette.LightGold,
+    TextSize = 15,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Left
+},Header)
+
+Create("TextLabel", {
+    Position = UDim2.fromOffset(13,27),
+    Size = UDim2.new(1,-55,0,13),
+    BackgroundTransparency = 1,
+    Text = "GOD ON SYSTEM | FINAL 6.0",
+    TextColor3 = Palette.Muted,
+    TextSize = 9,
+    Font = Enum.Font.Gotham
+},Header)
+
+local Minimize = Create("TextButton", {
+    Position = UDim2.new(1,-38,0,9),
+    Size = UDim2.fromOffset(30,30),
+    BackgroundColor3 = Palette.Dark,
+    Text = "—",
+    TextColor3 = Palette.Gold,
+    TextSize = 17,
+    Font = Enum.Font.GothamBold
+},Header)
+
+Corner(Minimize,7)
+
+--========================================================
+-- PAGE SYSTEM
+--========================================================
+
+local TabBar = Create("Frame", {
+    Position = UDim2.fromOffset(8,55),
+    Size = UDim2.new(1,-16,0,34),
+    BackgroundTransparency = 1
+},Main)
+
+local PageHolder = Create("Frame", {
+    Position = UDim2.fromOffset(9,96),
+    Size = UDim2.new(1,-18,1,-104),
+    BackgroundTransparency = 1
+},Main)
+
+local function MakePage(name)
+    local page = Create("ScrollingFrame", {
+        Name = name,
+        Size = UDim2.fromScale(1,1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ScrollBarThickness = 2,
+        ScrollBarImageColor3 = Palette.Gold,
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        CanvasSize = UDim2.new(),
+        Visible = false
+    },PageHolder)
+
+    Create("UIListLayout", {
+        Padding = UDim.new(0,6),
+        SortOrder = Enum.SortOrder.LayoutOrder
+    },page)
+
+    Create("UIPadding", {
+        PaddingBottom = UDim.new(0,8),
+        PaddingRight = UDim.new(0,3)
+    },page)
+
+    Pages[name] = page
+end
+
+MakePage("HOME")
+MakePage("VISUAL")
+MakePage("SYSTEM")
+
+local function SelectPage(name)
+    ActivePage = Pages[name]
+
+    for pageName,page in pairs(Pages) do
+        page.Visible = pageName == name
+    end
+
+    for pageName,button in pairs(Tabs) do
+        local selected = pageName == name
+
+        button.BackgroundColor3 = selected
+            and Color3.fromRGB(70,55,30)
+            or Palette.Panel
+
+        button.TextColor3 = selected
+            and Palette.LightGold
+            or Palette.Text
+    end
+end
+
+local function MakeTab(name,label,x)
+    local button = Create("TextButton", {
+        Position = UDim2.new(x,0,0,0),
+        Size = UDim2.new(1/3,-4,1,0),
+        BackgroundColor3 = Palette.Panel,
+        Text = label,
+        TextColor3 = Palette.Text,
+        TextSize = 10,
+        Font = Enum.Font.GothamBold
+    },TabBar)
+
+    Corner(button,7)
+
+    button.MouseButton1Click:Connect(function()
+        SelectPage(name)
+    end)
+
+    Tabs[name] = button
+end
+
+MakeTab("HOME","HOME",0)
+MakeTab("VISUAL","VISUAL",1/3)
+MakeTab("SYSTEM","SYSTEM",2/3)
+
+local function Section(text)
+    Create("TextLabel", {
+        Size = UDim2.new(1,-4,0,22),
+        BackgroundTransparency = 1,
+        Text = string.upper(text),
+        TextColor3 = Palette.Gold,
+        TextSize = 10,
+        Font = Enum.Font.GothamBold,
+        TextXAlignment = Enum.TextXAlignment.Left
+    },ActivePage)
+end
+
+local function Info(text,height)
+    return Label(ActivePage,text,height or 30)
+end
+
+local function Button(text,callback,height)
+    local button = Create("TextButton", {
+        Size = UDim2.new(1,-4,0,height or 35),
+        BackgroundColor3 = Palette.Panel,
+        Text = text,
+        TextColor3 = Palette.Text,
+        TextSize = 10,
+        Font = Enum.Font.GothamSemibold
+    },ActivePage)
+
+    Corner(button,7)
+    Outline(button,Palette.Gold,0.8)
+
+    button.MouseButton1Click:Connect(callback)
+
+    return button
+end
+
+--========================================================
+-- CAMERA MANAGEMENT
+--========================================================
+
+local function CaptureCamera()
+    local camera = workspace.CurrentCamera
+
+    if camera and Original.FOV == nil then
+        Original.FOV = camera.FieldOfView
+    end
+end
+
+local function SetFOV(value)
+    C.FOV = value
+
+    local camera = workspace.CurrentCamera
+
+    if camera then
+        camera.FieldOfView = value
+    end
+
+    if Status then
+        Status.Text = "SYSTEM | FOV " .. value
+    end
+end
+
+local function RestoreCamera()
+    local camera = workspace.CurrentCamera
+
+    if camera and Original.FOV then
+        camera.FieldOfView = Original.FOV
+    end
+end
+
+--========================================================
+-- AURA SYSTEM
+--========================================================
+
+local function ClearAura()
+    for _,obj in ipairs(AuraObjects) do
+        if obj and obj.Parent then
+            obj:Destroy()
+        end
+    end
+
+    table.clear(AuraObjects)
+end
+
+local function CreateAura()
+    ClearAura()
+
+    local character = LP.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+
+    if not root then
+        return
+    end
+
+    local colors = AuraColors[C.AuraStyle]
+
+    local attachment = Create("Attachment", {
+        Position = Vector3.new(0,-1.5,0)
+    },root)
+
+    table.insert(AuraObjects,attachment)
+
+    local emitter = Create("ParticleEmitter", {
+        Texture = "rbxasset://textures/particles/sparkles_main.dds",
+        Color = ColorSequence.new(colors[1],colors[2]),
+        LightEmission = 0.8,
+        Rate = 18 * C.AuraIntensity,
+        Lifetime = NumberRange.new(0.5,1.1),
+        Speed = NumberRange.new(0.5,1.3),
+        SpreadAngle = Vector2.new(180,180),
+        Size = NumberSequence.new({
+            NumberSequenceKeypoint.new(0,0.16),
+            NumberSequenceKeypoint.new(1,0)
+        }),
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0,0.1),
+            NumberSequenceKeypoint.new(1,1)
+        })
+    },attachment)
+
+    table.insert(AuraObjects,emitter)
+
+    local light = Create("PointLight", {
+        Color = colors[1],
+        Brightness = 0.5 * C.AuraIntensity,
+        Range = 9
+    },root)
+
+    table.insert(AuraObjects,light)
+end
+
+--========================================================
+-- PERFORMANCE SYSTEM
+--========================================================
+
+local function CaptureLighting()
+    if Original.GlobalShadows == nil then
+        Original.GlobalShadows = Lighting.GlobalShadows
+    end
+
+    for _,effect in ipairs(Lighting:GetChildren()) do
+        if effect:IsA("PostEffect")
+        and Original.Effects[effect] == nil then
+            Original.Effects[effect] = effect.Enabled
+        end
+    end
+end
+
+local function RestoreLighting()
+    if Original.GlobalShadows ~= nil then
+        Lighting.GlobalShadows = Original.GlobalShadows
+    end
+
+    for effect,enabled in pairs(Original.Effects) do
+        if effect and effect.Parent then
+            effect.Enabled = enabled
+        end
+    end
+end
+
+local function ApplyPerformance(mode)
+    CaptureLighting()
+
+    C.Performance = mode
+
+    if mode == 1 then
+        RestoreLighting()
+        Status.Text = "SYSTEM | BALANCED"
+    elseif mode == 2 then
+        Lighting.GlobalShadows = false
+        Status.Text = "SYSTEM | PERFORMANCE"
+    elseif mode == 3 then
+        Lighting.GlobalShadows = false
+
+        for effect,_ in pairs(Original.Effects) do
+            if effect and effect.Parent then
+                effect.Enabled = false
+            end
+        end
+
+        Status.Text = "SYSTEM | ULTRA LOW"
+    end
+end
+
+--========================================================
+-- PROFILES
+--========================================================
+
+local Profiles = {
+    "DOMINION",
+    "PREDATOR",
+    "ABSOLUTE"
+}
+
+local function SetProfile(index)
+    C.Profile = index
+    ProfileLabel.Text = "PROFILE | " .. Profiles[index]
+    Status.Text = "SYSTEM | " .. Profiles[index]
+end
+
+--========================================================
+-- GOD ON MASTER SWITCH
+--========================================================
+
+local function SetGodOn(enabled)
+    C.Active = enabled
+
+    if enabled then
+        CaptureCamera()
+        CaptureLighting()
+
+        if C.Aura then
+            CreateAura()
+        end
+
+        SetFOV(C.FOV)
+        Status.Text = "SYSTEM | GOD ON ACTIVE"
+    else
+        ClearAura()
+        RestoreCamera()
+        RestoreLighting()
+
+        Status.Text = "SYSTEM | STANDBY"
+    end
+
+    GodButton.Text = enabled
+        and "GOD ON | ACTIVE"
+        or "GOD ON | OFF"
+
+    GodButton.BackgroundColor3 = enabled
+        and Color3.fromRGB(75,55,25)
+        or Palette.Panel
+
+    Floating.Text = enabled and "ON" or "N"
+    Floating.TextColor3 = enabled
+        and Palette.Green
+        or Palette.LightGold
+end
+
+--========================================================
+-- HOME PAGE
+--========================================================
+
+SelectPage("HOME")
+
+Section("MASTER CONTROL")
+
+Status = Info("SYSTEM | STANDBY")
+ProfileLabel = Info("PROFILE | DOMINION")
+
+GodButton = Button("GOD ON | OFF",function()
+    SetGodOn(not C.Active)
+end,43)
+
+GodButton.TextSize = 13
+
+Button("EMERGENCY RESET",function()
+    SetGodOn(false)
+
+    C.FOV = 70
+    C.Profile = 1
+    C.Performance = 1
+
+    RestoreCamera()
+    RestoreLighting()
+
+    SetFOV(70)
+    SetProfile(1)
+    ApplyPerformance(1)
+
+    Status.Text = "SYSTEM | RESET COMPLETE"
+end)
+
+Section("CAMERA CONTROLS")
+
+Button("FOV | 60",function()
+    SetFOV(60)
+end)
+
+Button("FOV | 70",function()
+    SetFOV(70)
+end)
+
+Button("FOV | 80",function()
+    SetFOV(80)
+end)
+
+Button("FOV | 90",function()
+    SetFOV(90)
+end)
+
+Button("RESTORE ORIGINAL CAMERA",function()
+    RestoreCamera()
+    Status.Text = "SYSTEM | CAMERA RESTORED"
+end)
+
+--========================================================
+-- VISUAL PAGE
+--========================================================
+
+SelectPage("VISUAL")
+
+Section("DOMINION AURA")
+
+AuraButton = Button("AURA | ON",function()
+    C.Aura = not C.Aura
+
+    if C.Active and C.Aura then
+        CreateAura()
+    else
+        ClearAura()
+    end
+
+    AuraButton.Text = C.Aura
+        and "AURA | ON"
+        or "AURA | OFF"
+end)
+
+Button("CHANGE AURA STYLE",function()
+    C.AuraStyle = C.AuraStyle % #AuraColors + 1
+
+    if C.Active and C.Aura then
+        CreateAura()
+    end
+
+    Status.Text = "SYSTEM | AURA STYLE " .. C.AuraStyle
+end)
+
+Button("CHANGE AURA INTENSITY",function()
+    C.AuraIntensity = C.AuraIntensity >= 2
+        and 0.5
+        or C.AuraIntensity + 0.5
+
+    if C.Active and C.Aura then
+        CreateAura()
+    end
+
+    Status.Text = "SYSTEM | INTENSITY " .. C.AuraIntensity
+end)
+
+Section("HUD")
+
+Button("SHOW / HIDE MONITOR",function()
+    C.ShowMonitor = not C.ShowMonitor
+    Monitor.Visible = C.ShowMonitor
+end)
+
+--========================================================
+-- SYSTEM PAGE
+--========================================================
+
+SelectPage("SYSTEM")
+
+Section("PERFORMANCE")
+
+Button("BALANCED",function()
+    ApplyPerformance(1)
+end)
+
+Button("PERFORMANCE",function()
+    ApplyPerformance(2)
+end)
+
+Button("ULTRA LOW",function()
+    ApplyPerformance(3)
+end)
+
+Section("PROFILES")
+
+local profileIndex = 1
+
+Button("NEXT PROFILE",function()
+    profileIndex = profileIndex % #Profiles + 1
+    SetProfile(profileIndex)
+end)
+
+Section("SYSTEM INFORMATION")
+
+Info("NEXUS HUB | LOCAL HUD")
+Info("VERSION | 6.0 FINAL")
+Info("CAMERA | MANUAL CONTROL")
+Info("VISUAL EFFECTS | LOCAL")
+
+--========================================================
+-- FLOATING GOD ON
+--========================================================
+
+Floating = Create("TextButton", {
+    Name = "FloatingGodOn",
+    Size = UDim2.fromOffset(58,58),
+    Position = UDim2.new(1,-82,0.38,0),
+    BackgroundColor3 = Palette.Dark,
+    Text = "N",
+    TextColor3 = Palette.LightGold,
+    TextSize = 21,
+    Font = Enum.Font.GothamBlack
+},GUI)
+
+Corner(Floating,30)
+Outline(Floating,Palette.Gold,0)
+
+Floating.MouseButton1Click:Connect(function()
+    SetGodOn(not C.Active)
+end)
+
+--========================================================
+-- FPS / PING MONITOR
+--========================================================
+
+Monitor = Create("TextLabel", {
+    Size = UDim2.fromOffset(175,25),
+    Position = UDim2.new(1,-185,0,10),
+    BackgroundColor3 = Palette.Dark,
+    Text = "FPS -- | PING --",
+    TextColor3 = Palette.LightGold,
+    TextSize = 10,
+    Font = Enum.Font.GothamBold
+},GUI)
+
+Corner(Monitor,7)
+
+local frames = 0
+local elapsed = 0
+
+Track(RunService.RenderStepped:Connect(function(dt)
+    frames += 1
+    elapsed += dt
+
+    if elapsed >= 1 then
+        local fps = math.floor(frames / elapsed)
+
+        frames = 0
+        elapsed = 0
+
+        local ping = "--"
+
+        pcall(function()
+            ping = Stats.Network.ServerStatsItem[
+                "Data Ping"
+            ]:GetValueString()
+        end)
+
+        Monitor.Text = "FPS " .. fps .. " | PING " .. ping
+    end
+end))
+
+--========================================================
+-- MINIMIZE
+--========================================================
+
+local minimized = false
+
+Minimize.MouseButton1Click:Connect(function()
+    minimized = not minimized
+
+    TabBar.Visible = not minimized
+    PageHolder.Visible = not minimized
+
+    Main.Size = minimized
+        and UDim2.fromOffset(285,48)
+        or UDim2.fromOffset(285,370)
+
+    Minimize.Text = minimized and "+" or "—"
+end)
+
+--========================================================
+-- DRAG SUPPORT
+--========================================================
+
+local dragging = false
+local dragStart
+local startPosition
+local dragInput
+
+Header.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch
+    or input.UserInputType == Enum.UserInputType.MouseButton1 then
+
+        dragging = true
+        dragInput = input
+        dragStart = input.Position
+        startPosition = Main.Position
+    end
+end)
+
+Track(UIS.InputChanged:Connect(function(input)
+    if dragging and (
+        input.UserInputType == Enum.UserInputType.Touch
+        or input.UserInputType == Enum.UserInputType.MouseMovement
+    ) then
+
+        local delta = input.Position - dragStart
+
+        Main.Position = UDim2.new(
+            startPosition.X.Scale,
+            startPosition.X.Offset + delta.X,
+            startPosition.Y.Scale,
+            startPosition.Y.Offset + delta.Y
+        )
+    end
+end))
+
+Track(UIS.InputEnded:Connect(function(input)
+    if input == dragInput then
+        dragging = false
+        dragInput = nil
+    end
+end))
+
+--========================================================
+-- RESPAWN
+--========================================================
+
+Track(LP.CharacterAdded:Connect(function()
+    ClearAura()
+
+    task.wait(1)
+
+    if C.Active and C.Aura then
+        CreateAura()
+    end
+end))
+
+--========================================================
+-- INITIALIZATION
+--========================================================
+
+SelectPage("HOME")
+SetGodOn(false)
+
+print("NEXUS HUB | ABSOLUTE GOD ON 6.0 INITIALIZED")
